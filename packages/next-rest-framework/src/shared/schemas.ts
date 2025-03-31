@@ -1,6 +1,6 @@
 import { type OpenAPIV3_1 } from 'openapi-types';
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import { type AnyZodObject, type ZodSchema } from 'zod';
+import { type AnyZodObject, type ZodSchema, type ZodObject } from 'zod';
 import { type zfd } from 'zod-form-data';
 import chalk from 'chalk';
 
@@ -43,6 +43,21 @@ export const validateSchema = ({
 
 type SchemaType = 'input-params' | 'input-query' | 'input-body' | 'output-body';
 
+const extractOpenAPIMetadata = (schema: ZodObject<any>): Record<string, any> => {
+  const openapiMetadata: Record<string, any> = {};
+
+  for (const [key, value] of Object.entries(schema.shape)) {
+    if (value && typeof value === 'object' && 'openapi' in value && typeof (value as any).openapi === "function") {
+      const metadata = typeof value.openapi === 'function' ? value.openapi() : undefined;
+      if (metadata) {
+        openapiMetadata[key] = metadata;
+      }
+    }
+  }
+
+  return openapiMetadata;
+};
+
 export const getJsonSchema = ({
   schema,
   operationId,
@@ -54,33 +69,46 @@ export const getJsonSchema = ({
 }): OpenAPIV3_1.SchemaObject => {
   if (isZodSchema(schema)) {
     try {
-      return zodToJsonSchema(schema, {
-        $refStrategy: 'none',
-        target: 'openApi3'
+      // Convert Zod schema to JSON Schema
+      const jsonSchema = zodToJsonSchema(schema, {
+        $refStrategy: "none",
+        target: "openApi3"
       });
-    } catch (error) {
-      const solutions: Record<SchemaType, string> = {
-        'input-params': 'paramsSchema',
-        'input-query': 'querySchema',
-        'input-body': 'bodySchema',
-        'output-body': 'bodySchema'
-      };
 
+      let openapiMetadata;
+      // Extract OpenAPI metadata and merge with schema
+      if (isZodObjectSchema(schema)) {
+        openapiMetadata = extractOpenAPIMetadata(schema);
+      } else {
+        throw Error("Invalid schema: Expected a ZodObject.");
+      }
+
+      // Apply OpenAPI metadata to the correct properties in the JSON Schema
+      if (jsonSchema && typeof jsonSchema === 'object' && 'properties' in jsonSchema) {
+        for (const [key, meta] of Object.entries(openapiMetadata)) {
+          const properties = jsonSchema.properties as Record<string, any>;
+          const openapimeta = meta?._def?.openapi?.metadata ?? {}
+          properties[key] = {
+            ...properties[key],
+            ...openapimeta
+          };
+        }
+      }
+
+      return jsonSchema;
+    } catch (error) {
       console.warn(
         chalk.yellowBright(
-          `
-Warning: ${type} schema for operation ${operationId} could not be converted to a JSON schema. The OpenAPI spec may not be accurate.
-This is most likely related to an issue with the \`zod-to-json-schema\`: https://github.com/StefanTerdell/zod-to-json-schema?tab=readme-ov-file#known-issues
-Please consider using the ${solutions[type]} property in addition to the Zod schema.`
+          `Warning: ${type} schema for operation ${operationId} could not be converted correctly.`
         )
       );
-
       return {};
     }
   }
 
-  throw Error('Invalid schema.');
+  throw Error("Invalid schema." + JSON.stringify(schema));
 };
+
 
 export const getSchemaKeys = ({ schema }: { schema: ZodSchema }) => {
   if (isZodObjectSchema(schema)) {
