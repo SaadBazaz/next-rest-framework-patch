@@ -392,7 +392,7 @@ export const generatePathsFromBuild = async ({
   if (ignoredPaths.length) {
     console.info(
       chalk.yellowBright(
-        `The following paths are ignored by Next REST Framework: ${chalk.bold(
+        `bruh bruh bruhThe following paths are ignored by Next REST Framework: ${chalk.bold(
           ignoredPaths.map((p) => `\n- ${p}`)
         )}`
       )
